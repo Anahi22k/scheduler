@@ -1,0 +1,49 @@
+{
+  "major": "Accounting (BS)",
+  "total_credits_required": 120,
+
+  "business_core": [
+    { "course": "KSB-111", "credits": 3 },
+    { "course": "KSB-112", "credits": 1 },
+    { "course": "KSB-113", "credits": 3 },
+    { "course": "KSB-121", "credits": 2 },
+    { "course": "KSB-122", "credits": 3 },
+    { "course": "KSB-123", "credits": 3 },
+    { "course": "KSB-211", "credits": 3 },
+    { "course": "KSB-212", "credits": 3 },
+    { "course": "KSB-213", "credits": 3 },
+    { "course": "KSB-221", "credits": 3 },
+    { "course": "KSB-223", "credits": 2 },
+    { "course": "KSB-224", "credits": 3 },
+    { "course": "KSB-301", "credits": 2 },
+    { "course": "KSB-302", "credits": 1 },
+    { "course": "KSB-421", "credits": 3 }
+  ],
+
+  "advanced_accounting_required": [
+    { "course": "ACCT-340", "credits": 3 },
+    { "course": "ACCT-341", "credits": 3 },
+    { "course": "ACCT-345", "credits": 3 },
+    { "course": "ACCT-443", "credits": 3 },
+    { "course": "ACCT-449", "credits": 3 }
+  ],
+
+  "accounting_electives": {
+    "credits_required": 9,
+    "options": [
+      { "course": "ACCT-447", "credits": 3 },
+      { "course": "ACCT-451", "credits": 3 },
+      { "course": "ACCT-477", "credits": 3 },
+      { "course": "ACCT-480", "credits": 3 },
+      { "course": "ACCT-550", "credits": 3 },
+      { "course": "ACCT-560", "credits": 3 }
+    ]
+  },
+
+  "gen_ed_required_credits": 40,
+
+  "semester_constraints": {
+    "min_credits": 12,
+    "max_credits": 17
+  }
+}

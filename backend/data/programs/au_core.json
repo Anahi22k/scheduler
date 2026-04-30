@@ -1,0 +1,61 @@
+{
+    "name": "AU Core",
+  
+    "requirements": [
+      {
+        "name": "Encounters I",
+        "type": "choose_one",
+        "courses": ["CORE-102", "CORE-103"]
+      },
+      {
+        "name": "Encounters II",
+        "type": "choose_one",
+        "courses": ["CORE-202", "CORE-203"]
+      },
+      {
+        "name": "Complex Problems",
+        "type": "choose_one",
+        "courses": ["CORE-105", "CORE-106", "CORE-107"]
+      },
+      {
+        "name": "Writing I",
+        "type": "choose_sequence",
+        "options": [
+          ["WRT-100", "WRT-101"],
+          ["WRT-102", "WRT-103"]
+        ]
+      },
+      {
+        "name": "Quantitative Literacy I",
+        "type": "tag_based",
+        "tag": "Q1"
+      },
+      {
+        "name": "Habits of Mind",
+        "type": "multi_category",
+        "categories": [
+          "Creative-Aesthetic Inquiry",
+          "Cultural Inquiry",
+          "Ethical Reasoning",
+          "Natural-Scientific Inquiry",
+          "Socio-Historical Inquiry"
+        ],
+        "courses_per_category": 1
+      },
+      {
+        "name": "Writing II",
+        "type": "tag_based",
+        "tag": "W2"
+      },
+      {
+        "name": "Quantitative Literacy II",
+        "type": "tag_based",
+        "tag": "Q2"
+      },
+      {
+        "name": "Diversity and Equity",
+        "type": "tag_based",
+        "tag": "DE"
+      }
+    ]
+  }

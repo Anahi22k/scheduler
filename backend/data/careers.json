@@ -1,0 +1,10 @@
+{
+  "financial analyst": {
+    "keywords": ["finance", "accounting", "data", "analysis"],
+    "recommended_courses": ["ACCT-245", "ACCT-340", "ACCT-345"]
+  },
+  "software engineer": {
+    "keywords": ["programming", "coding", "software"],
+    "recommended_courses": ["CS-101", "CS-202", "CS-301"]
+  }
+}

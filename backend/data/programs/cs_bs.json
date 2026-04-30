@@ -1,0 +1,38 @@
+{
+    "program": "Computer Science BS",
+    "requirements": [
+      {
+        "name": "Intro Core",
+        "type": "fixed",
+        "courses": ["CSC-148", "CSC-208", "CSC-240", "CSC-256"]
+      },
+      {
+        "name": "Upper Core",
+        "type": "fixed",
+        "courses": ["CSC-316", "CSC-320", "CSC-421"]
+      },
+      {
+        "name": "Math",
+        "type": "choose_n_credits",
+        "credits": 8,
+        "courses": ["MATH-221", "MATH-222", "MATH-310", "STAT-202", "STAT-203"]
+      },
+      {
+        "name": "Breadth",
+        "type": "choose_n_credits",
+        "credits": 12,
+        "courses": [
+          "CSC-336", "CSC-434", "CSC-440", "CSC-444",
+          "CSC-446", "CSC-447", "CSC-448", "CSC-449",
+          "CSC-450", "CSC-465", "CSC-470", "CSC-476",
+          "CSC-480", "CSC-481", "CSC-485", "CSC-535"
+        ]
+      },
+      {
+        "name": "Capstone",
+        "type": "repeat",
+        "course": "CSC-493",
+        "times": 2
+      }
+    ]
+  }
