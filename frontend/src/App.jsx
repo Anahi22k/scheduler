@@ -11,6 +11,10 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [completedCourses, setCompletedCourses] = useState("");
   const [creditsCompleted, setCreditsCompleted] = useState(0);
+  const [requirementSummary, setRequirementSummary] = useState(null);
+  const [warnings, setWarnings] = useState([]);
+  const [edgeCases, setEdgeCases] = useState({});
+  const [activeCourse, setActiveCourse] = useState(null);
 
   // career selection
   const [career, setCareer] = useState("");
@@ -92,6 +96,9 @@ export default function App() {
 
       const data = await res.json();
       setSchedules(data.schedules || []);
+      setRequirementSummary(data.requirement_summary || null);
+      setWarnings(data.warnings || []);
+      setEdgeCases(data.edge_cases || {});
     } catch (err) {
       console.error(err);
       alert("Something went wrong. Check backend.");
@@ -99,6 +106,35 @@ export default function App() {
 
     setLoading(false);
   };
+
+  const parsedCompletedCourses = completedCourses
+    .split(",")
+    .map((c) => c.trim().toUpperCase())
+    .filter((c) => c !== "");
+
+  const completedEstimate = parsedCompletedCourses.length;
+  const remainingEstimate = requirementSummary?.remaining_required_count || 0;
+  const estimatedTotal = completedEstimate + remainingEstimate;
+  const progressPct = estimatedTotal > 0
+    ? Math.round((completedEstimate / estimatedTotal) * 100)
+    : 0;
+
+  const resultWarnings = [];
+  if (Array.isArray(warnings)) resultWarnings.push(...warnings);
+
+  if (edgeCases?.required_courses_not_offered?.length) {
+    resultWarnings.push(
+      `Required courses not offered: ${edgeCases.required_courses_not_offered.slice(0, 8).join(", ")}`
+    );
+  }
+  if (edgeCases?.missing_prereq_required_courses?.length) {
+    resultWarnings.push(
+      `Missing prerequisites for: ${edgeCases.missing_prereq_required_courses.slice(0, 8).join(", ")}`
+    );
+  }
+  if (edgeCases?.conflict_or_low_availability_warning) {
+    resultWarnings.push("Low availability warning: very few valid schedules matched your constraints.");
+  }
 
   return (
     <div style={{ padding: "30px", maxWidth: "900px", margin: "auto" }}>
@@ -211,10 +247,74 @@ export default function App() {
         Top Schedules
       </h2>
 
+      {(resultWarnings.length > 0 || edgeCases?.no_schedule_reason) && (
+        <div
+          style={{
+            marginTop: "16px",
+            marginBottom: "16px",
+            padding: "12px",
+            border: "1px solid #f1c40f",
+            background: "#fff9e6"
+          }}
+        >
+          <strong style={{ color: "#8a6d3b" }}>Warnings & Edge Cases</strong>
+          <ul style={{ marginTop: "8px", color: "#8a6d3b" }}>
+            {resultWarnings.map((w, idx) => <li key={`warn-${idx}`}>{w}</li>)}
+            {edgeCases?.no_schedule_reason && (
+              <li style={{ color: "#b00020" }}>
+                No valid schedules could be generated because: {edgeCases.no_schedule_reason}
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
+
+      {requirementSummary && (
+        <div
+          style={{
+            marginTop: "16px",
+            marginBottom: "20px",
+            padding: "12px",
+            border: "1px solid #ddd"
+          }}
+        >
+          <h3 style={{ marginTop: 0, marginBottom: "10px" }}>Requirement Progress</h3>
+
+          <div style={{ marginBottom: "10px" }}>
+            <div style={{ fontSize: "14px", marginBottom: "4px" }}>
+              Estimated progress: {completedEstimate}/{estimatedTotal} completed ({progressPct}%)
+            </div>
+            <div style={{ width: "100%", height: "10px", background: "#eee" }}>
+              <div
+                style={{
+                  width: `${progressPct}%`,
+                  height: "100%",
+                  background: "#4caf50"
+                }}
+              />
+            </div>
+          </div>
+
+          <div style={{ marginBottom: "8px" }}>
+            <strong>Major Requirements</strong>
+            <div>Remaining major courses: {requirementSummary.remaining_major_count ?? 0}</div>
+          </div>
+
+          <div>
+            <strong>AU Core Requirements</strong>
+            <div>Remaining AU core courses: {requirementSummary.remaining_core_count ?? 0}</div>
+          </div>
+
+          <div style={{ marginTop: "8px" }}>
+            Remaining required courses (total): {requirementSummary.remaining_required_count ?? 0}
+          </div>
+        </div>
+      )}
+
       {!loading && schedules.length === 0 && (
-        <p style={{ textAlign: "center" }}>
-          No schedules yet. Try generating one.
-        </p>
+        <div style={{ textAlign: "center", marginTop: "20px", color: "#b00020" }}>
+          No valid schedules could be generated because: {edgeCases?.no_schedule_reason || "constraints could not be satisfied."}
+        </div>
       )}
 
       <div
@@ -237,13 +337,51 @@ export default function App() {
               color: "white"
             }}
           >
-            <h4 style={{ textAlign: "center" }}>
-              {i === 0 ? "Best Schedule" : `Schedule ${i + 1}`}
+            <h4 style={{ textAlign: "center", marginBottom: "8px" }}>
+              {`Schedule #${i + 1}`}
             </h4>
+
+            <div style={{ fontSize: "13px", color: "#ddd", marginBottom: "8px" }}>
+              <div>Total credits: {sched.total_credits}</div>
+              <div>Required course count: {sched.required_course_count ?? 0}</div>
+              <div>Career alignment score: {sched.career_alignment_score ?? 0}</div>
+            </div>
+
+            <div
+              style={{
+                border: "1px solid #666",
+                padding: "8px",
+                borderRadius: "6px",
+                marginBottom: "12px",
+                background: "#1c1c1c"
+              }}
+            >
+              <strong style={{ color: "#ffd54f" }}>Why this schedule?</strong>
+              <div style={{ fontSize: "12px", marginTop: "4px", color: "#ddd" }}>
+                {sched.ranking_explanation || "Ranked by requirement fit, career match, and workload balance."}
+              </div>
+            </div>
 
             {sched.courses.map((c, idx) => (
               <div key={idx} style={{ marginBottom: "12px" }}>
-                <strong>{c.course}</strong> ({c.credits} credits) — {c.time}
+                <button
+                  onClick={() => setActiveCourse(activeCourse?.key === `${i}-${idx}` ? null : {
+                    key: `${i}-${idx}`,
+                    course: c
+                  })}
+                  style={{
+                    background: "transparent",
+                    color: "white",
+                    border: "1px solid #777",
+                    borderRadius: "6px",
+                    padding: "6px",
+                    cursor: "pointer",
+                    width: "100%",
+                    textAlign: "left"
+                  }}
+                >
+                  <strong>{c.course}</strong> ({c.credits} credits) — {c.time}
+                </button>
 
                 {c.reasons && c.reasons.length > 0 && (
                   <ul style={{
@@ -255,13 +393,55 @@ export default function App() {
                   {c.reasons.map((r, i) => (
                     <li key={i}>{r}</li>
                   ))}
-              </ul>
-              )}
-            </div>
+                  </ul>
+                )}
+              </div>
             ))}
           </div>
         ))}
       </div>
+
+      {activeCourse && (
+        <div
+          onClick={() => setActiveCourse(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 999
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "white",
+              color: "#111",
+              padding: "16px",
+              width: "min(700px, 90vw)",
+              borderRadius: "8px"
+            }}
+          >
+            <h3 style={{ marginTop: 0 }}>{activeCourse.course.course}</h3>
+            <p style={{ marginTop: 0, color: "#333" }}>
+              {activeCourse.course.title || "No title available"}
+            </p>
+            <div style={{ fontSize: "14px", marginBottom: "10px" }}>
+              <strong>Description:</strong>{" "}
+              {activeCourse.course.description || "No description available."}
+            </div>
+            <div style={{ fontSize: "14px", marginBottom: "10px" }}>
+              <strong>Reason it was recommended:</strong>{" "}
+              {activeCourse.course.reasons?.length
+                ? activeCourse.course.reasons.join(", ")
+                : "No specific recommendation reason available."}
+            </div>
+            <button onClick={() => setActiveCourse(null)}>Close</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

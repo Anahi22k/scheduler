@@ -1,19 +1,16 @@
+import json
+import re
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import json
 
-
-from scheduler import (
+from requirement_engine import build_remaining_requirements
+from recommendation_engine import rank_courses
+from schedule_generator import (
     prepare_courses,
-    generate_schedules,
-    group_by_course,
-    is_eligible,
-    matches_interest,
-    matches_career,
-    respects_unavailable_days,
-    score_schedule,
+    generate_valid_schedules,
+    rank_schedules,
     extract_credits,
-    total_credits
+    total_credits,
 )
 
 app = Flask(__name__)
@@ -24,20 +21,20 @@ CORS(app)
 # =========================
 
 # Load all course offerings
-with open("backend/data/courses_clean.json") as f:
+with open("data/courses_clean.json") as f:
     courses = json.load(f)
 
 # Load career data (used for career-based recommendations)
-with open("backend/data/onet_careers.json") as f:
+with open("data/onet_careers.json") as f:
     careers = json.load(f)
 
 # Load AU Core requirements
-with open("backend/data/programs/au_core.json") as f:
+with open("data/programs/au_core.json") as f:
     au_core = json.load(f)
 
 # Load ALL majors (generated from scraper)
 # Each major contains: { "all_courses": [...] }
-with open("backend/data/programs/programs_all.json") as f:
+with open("data/programs/programs_all.json") as f:
     PROGRAMS = json.load(f)
 
 # Preprocess course time data once at startup
@@ -47,56 +44,87 @@ prepared_courses = prepare_courses(courses)
 # HELPER FUNCTIONS
 # =========================
 
-def relevant_to_major(course, program):
-    """
-    Returns True if the course belongs to the selected major.
-    Uses the 'all_courses' list generated from the catalog.
-    """
-    return course["course"] in program.get("all_courses", [])
+def normalize_course_code(code):
+    return (code or "").strip().upper()
 
 
-def needed_for_core(course, core, student):
-    """
-    Determines whether a course satisfies AU Core requirements.
-    """
+def parse_prereq_text(course):
+    description = course.get("description", "") or ""
+    prereq = re.search(r"Prerequisite(?:/Concurrent)?:\s*(.*?)(?:\.|$)", description)
+    return prereq.group(1).strip() if prereq else ""
+
+
+def parse_restriction_text(course):
+    description = course.get("description", "") or ""
+    restriction = re.search(r"Restriction:\s*(.*?)(?:\.|$)", description)
+    return restriction.group(1).strip() if restriction else ""
+
+
+def eligibility_result(course, student):
     completed = set(student.get("completed_courses", []))
-    code = course["course"]
+    prereq_text = parse_prereq_text(course)
+    prereq_text_lower = prereq_text.lower()
+    required_codes = re.findall(r"[A-Z]{3,4}-\d{3}", prereq_text.upper())
+    has_explicit_prereq_data = bool(prereq_text.strip())
 
-    for req in core["requirements"]:
-        if req["type"] == "choose_one":
-            if code in req["courses"] and code not in completed:
-                return True
+    if course["course"] in completed:
+        return False, "already_completed"
 
-        elif req["type"] == "choose_sequence":
-            for seq in req["options"]:
-                if code in seq and code not in completed:
-                    return True
+    # Missing/unknown prerequisite data is treated as OPEN.
+    # We only enforce prerequisites when explicit prerequisite text exists.
+    if has_explicit_prereq_data and (
+        "junior standing" in prereq_text_lower or "senior standing" in prereq_text_lower
+    ):
+        return False, "standing_requirement"
 
-        elif req["type"] == "tag_based":
-            if req["tag"] in course.get("tags", []):
-                return True
+    if has_explicit_prereq_data and required_codes and "concurrent" not in prereq_text_lower:
+        or_groups = re.split(r"\bor\b", prereq_text_lower)
+        group_satisfied = False
+        for group in or_groups:
+            group_codes = re.findall(r"[A-Z]{3,4}-\d{3}", group.upper())
+            if group_codes and all(code in completed for code in group_codes):
+                group_satisfied = True
+                break
+        if not group_satisfied:
+            return False, "missing_prerequisite"
 
-    return False
+    if has_explicit_prereq_data and "credit" in prereq_text_lower and "hour" in prereq_text_lower:
+        credit_match = re.search(r"(\d+)", prereq_text_lower)
+        if credit_match and student.get("credits_completed", 0) < int(credit_match.group(1)):
+            return False, "insufficient_credits_completed"
 
-def get_course_reasons(course, student, program, interests, career):
-    """
-    Returns a list of human-readable reasons why a course was selected.
-    """
-    reasons = []
+    restriction_text = parse_restriction_text(course).lower()
+    major = (student.get("major") or "").lower()
+    if restriction_text and "not allowed" not in restriction_text and major and major not in restriction_text:
+        return False, "major_restriction"
 
-    if relevant_to_major(course, program):
-        reasons.append("Required or part of your major")
+    return True, None
 
-    if needed_for_core(course, au_core, student):
-        reasons.append("Fulfills AU Core requirement")
 
-    if matches_interest(course, interests):
-        reasons.append("Matches your interests")
+def schedule_ranking_details(schedule):
+    required_count = sum(1 for c in schedule if c.get("ranking", {}).get("is_required"))
+    career_alignment_score = round(
+        sum(c.get("ranking", {}).get("career_similarity", 0.0) for c in schedule), 2
+    )
+    total_recommendation_score = round(
+        sum(c.get("ranking", {}).get("score", 0.0) for c in schedule), 3
+    )
+    credits = round(total_credits(schedule), 2)
+    workload_balance_penalty = round(abs(15.0 - credits), 2)
+    explanation = (
+        f"Ranked by degree progress first ({required_count} required courses), "
+        f"then career alignment ({career_alignment_score}), "
+        f"then workload balance (distance from 15 credits: {workload_balance_penalty}), "
+        f"then overall recommendation score ({total_recommendation_score})."
+    )
 
-    if matches_career(course, career):
-        reasons.append("Aligned with your career goal")
-
-    return reasons
+    return {
+        "required_course_count": required_count,
+        "career_alignment_score": career_alignment_score,
+        "total_recommendation_score": total_recommendation_score,
+        "workload_balance_penalty": workload_balance_penalty,
+        "ranking_explanation": explanation,
+    }
 # =========================
 # ROUTES
 # =========================
@@ -111,10 +139,9 @@ def get_careers():
 
 @app.route("/generate", methods=["POST"])
 def generate():
-
     data = request.json or {}
-    print("RAW:", data.get("unavailable_days"))  
-    #  Map frontend days → backend format
+
+    # Map frontend days to backend format.
     day_map = {
         "Mon": "M", "Monday": "M",
         "Tue": "T", "Tuesday": "T",
@@ -129,13 +156,6 @@ def generate():
         day_map.get(d, d) for d in data.get("unavailable_days", [])
     ]
 
-    print("MAPPED:", unavailable_days) 
-    
-
-    unavailable_days = [
-        day_map.get(d, d) for d in data.get("unavailable_days", [])
-    ]
-
     # Build student profile
     student = {
         "major": data.get("major"),
@@ -144,99 +164,136 @@ def generate():
     }
 
     program = PROGRAMS.get(student["major"], {})
-
-    if not program:
-        print("Warning: Major not found in PROGRAMS:", student["major"])
-
     interests = data.get("interests", "")
-    career = data.get("career", "").lower()
+    career = data.get("career", "")
     max_courses = data.get("max_courses", 5)
+    min_credits = float(data.get("min_credits", 12))
+    max_credits = float(data.get("max_credits", 17))
 
-    # =========================
-    # FILTER ELIGIBLE COURSES
-    # =========================
+    requirement_state = build_remaining_requirements(
+        programs=PROGRAMS,
+        au_core=au_core,
+        major=student["major"],
+        completed_courses=student["completed_courses"],
+        all_courses=prepared_courses,
+    )
+    remaining_required = requirement_state["remaining_required_courses"]
+    remaining_required_set = set(remaining_required)
 
-    eligible = [
+    completed_set = {normalize_course_code(c) for c in student["completed_courses"]}
+    eligible_courses = [
         c for c in prepared_courses
-        if is_eligible(c, student)
-        and respects_unavailable_days(c, unavailable_days)
-        and not c["course"].startswith("AUAB")
-        and (
-            # Course belongs to student's major
-            relevant_to_major(c, program)
-
-            # OR satisfies AU Core
-            or needed_for_core(c, au_core, student)
-
-            # OR matches interest keywords
-            or matches_interest(c, interests)
-
-            # OR matches career goals
-            or matches_career(c, career)
-        )
+        if normalize_course_code(c.get("course")) not in completed_set
     ]
-    eligible.sort(
-        key=lambda c: matches_career(c, career),
-        reverse=True
-    )
-    # Fallback if filtering is too strict
-    if not eligible:
-        eligible = [
-            c for c in prepared_courses
-            if is_eligible(c, student)
-            and respects_unavailable_days(c, unavailable_days)
-        ]
 
-    # =========================
-    # GENERATE SCHEDULES
-    # =========================
-
-    grouped = group_by_course(eligible, career)
-    grouped.sort(
-        key=lambda group: any(matches_career(c, career) for c in group),
-        reverse=True
+    ranked_courses = rank_courses(
+        courses=eligible_courses,
+        remaining_required_courses=remaining_required,
+        career_text=career,
+        interests_text=interests,
     )
 
-    schedules = generate_schedules(
-        grouped,
-        max_courses=max_courses
+    # Keep high-signal candidate pool for schedule search.
+    candidate_courses = [
+        c for c in ranked_courses
+        if c["ranking"]["is_required"]
+        or c["ranking"]["career_similarity"] >= 45
+        or c["ranking"]["interest_similarity"] >= 40
+    ]
+    if not candidate_courses:
+        candidate_courses = ranked_courses[:300]
+
+    schedules, scheduler_diagnostics = generate_valid_schedules(
+        ranked_courses=candidate_courses,
+        unavailable_days=unavailable_days,
+        min_credits=min_credits,
+        max_credits=max_credits,
+        max_courses=max_courses,
+        min_required_target=2,
+        student_completed_courses=student["completed_courses"],
+        credits_completed=float(student.get("credits_completed", 0) or 0),
+        return_diagnostics=True,
+        limit=120,
+    )
+    ranked_schedules = rank_schedules(schedules)
+    missing_prereq_required_courses = set(
+        scheduler_diagnostics.get("blocked_required_by_prereq", [])
     )
 
-    # =========================
-    # RANK SCHEDULES
-    # =========================
-
-    schedules.sort(
-        key=lambda s: score_schedule(s, interests, career, program),
-        reverse=True
+    offered_course_codes = {normalize_course_code(c.get("course")) for c in prepared_courses}
+    required_not_offered = sorted(
+        code for code in remaining_required
+        if code not in offered_course_codes
     )
 
-    # =========================
-    # RETURN TOP RESULTS
-    # =========================
+    warnings = []
+    if required_not_offered:
+        warnings.append("Some required courses are not offered this term.")
+    if missing_prereq_required_courses:
+        warnings.append("Some required courses are currently blocked by prerequisites.")
+    if not ranked_schedules and unavailable_days:
+        warnings.append("No schedule matched your availability constraints.")
+    if not ranked_schedules and remaining_required:
+        warnings.append("Required-course conflicts may require a longer-term plan.")
+    if ranked_schedules and len(ranked_schedules) < 3:
+        warnings.append("Low schedule availability; try broadening constraints.")
+
+    schedule_cards = []
+    for sched in ranked_schedules[:10]:
+        ranking = schedule_ranking_details(sched)
+        schedule_cards.append({
+            "total_credits": total_credits(sched),
+            "required_course_count": ranking["required_course_count"],
+            "career_alignment_score": ranking["career_alignment_score"],
+            "total_recommendation_score": ranking["total_recommendation_score"],
+            "workload_balance_penalty": ranking["workload_balance_penalty"],
+            "ranking_explanation": ranking["ranking_explanation"],
+            "courses": [
+                {
+                    "course": c["course"],
+                    "title": c.get("title") or c.get("course"),
+                    "description": c.get("description") or "No description available",
+                    "time": c["time"],
+                    "credits": extract_credits(c),
+                    "reasons": c.get("ranking", {}).get("reasons", []),
+                    "course_score": c.get("ranking", {}).get("score", 0),
+                    "career_similarity": c.get("ranking", {}).get("career_similarity", 0),
+                    "interest_similarity": c.get("ranking", {}).get("interest_similarity", 0),
+                    "is_required": c.get("ranking", {}).get("is_required", False),
+                }
+                for c in sched
+            ],
+        })
+
+    no_schedule_reason = None
+    if not schedule_cards:
+        if unavailable_days:
+            no_schedule_reason = "No schedules fit your unavailable days with current requirements."
+        elif missing_prereq_required_courses:
+            no_schedule_reason = "Required courses are blocked by prerequisites this term."
+        elif required_not_offered:
+            no_schedule_reason = "Required courses are not offered this term."
+        else:
+            no_schedule_reason = "No valid schedule found under current credit and conflict constraints."
 
     return jsonify({
-        "schedules": [
-            {
-                "total_credits": total_credits(sched),
-                "courses": [
-                    {
-                        "course": c["course"],
-                        "time": c["time"],
-                        "credits": extract_credits(c),
-                        "reasons": get_course_reasons(
-                            c,
-                            student,
-                            program,
-                            interests,
-                            career
-                        )
-                    }
-                    for c in sched
-                ] 
-            }
-            for sched in schedules[:10]
-        ]
+        "schedules": schedule_cards,
+        "requirement_summary": {
+            "remaining_required_courses": remaining_required,
+            "remaining_major_courses": requirement_state["remaining_major_courses"],
+            "remaining_core_courses": requirement_state["remaining_core_courses"],
+            "unsatisfied_core_requirements": requirement_state["unsatisfied_core_requirements"],
+            "remaining_required_count": len(remaining_required),
+            "remaining_major_count": len(requirement_state["remaining_major_courses"]),
+            "remaining_core_count": len(requirement_state["remaining_core_courses"]),
+        },
+        "edge_cases": {
+            "missing_prereq_required_courses": sorted(missing_prereq_required_courses),
+            "required_courses_not_offered": required_not_offered,
+            "conflict_or_low_availability_warning": len(ranked_schedules) < 3,
+            "no_schedule_reason": no_schedule_reason,
+        },
+        "warnings": warnings,
     })
 
 @app.route("/majors")
