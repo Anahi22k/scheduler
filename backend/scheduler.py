@@ -166,13 +166,13 @@ def is_eligible(course, student):
     rules = parse_rules(course)
     completed = set(student.get("completed_courses", []))
 
-    # ❌ don't recommend courses already taken
+    #  don't recommend courses already taken
     if course["course"] in completed:
         return False
 
     prereq_text = (rules["prereq"] or "").lower()
 
-    # 🚫 filter out upper-level standing (your design choice)
+    # filter out upper-level standing (your design choice)
     if "junior standing" in prereq_text:
         return False
     if "senior standing" in prereq_text:
@@ -185,7 +185,7 @@ def is_eligible(course, student):
         # extract all course codes
         all_courses = re.findall(r"[A-Z]{3,4}-\d{3}", rules["prereq"])
 
-        # ✅ if it's concurrent → allow even if not completed
+        # if it's concurrent → allow even if not completed
         if "concurrent" not in prereq_text:
             # split by OR
             or_groups = re.split(r"\bor\b", prereq_text)
