@@ -10,7 +10,7 @@ A web app that helps students draft semester schedules by combining **degree & A
 |------|---------|
 | `backend/app.py` | Flask API: `/generate`, `/majors`, `/careers`. Loads JSON data and wires the engines together. |
 | `backend/requirement_engine.py` | Computes remaining major + AU Core requirements from completed courses. |
-| `backend/recommendation_engine.py` | Ranks courses (required-first + RapidFuzz career/interest similarity + seats). |
+| `backend/recommendation_engine.py` | Ranks courses (required-first / RapidFuzz career/interest similarity / seats). |
 | `backend/schedule_generator.py` | Parses meeting times, filters sections, backtracking schedule search, ranks schedules. |
 | `backend/scheduler.py` | Earlier scheduler experiment (legacy); the live app uses `schedule_generator.py`. |
 | `backend/convert_onet.py` | Optional utility for ONET career data (uses pandas). |
@@ -22,8 +22,8 @@ A web app that helps students draft semester schedules by combining **degree & A
 
 ## Prerequisites
 
-- **Python 3.11+** (recent 3.x works)
-- **Node.js 18+** for the frontend
+- **Python 3.11** 
+- **Node.js 18**  frontend
 
 ---
 
@@ -84,7 +84,7 @@ Regenerate when you change terms (see `TERM_CODE` in `scraper/eagle_service_scra
 ```bash
 cd scraper
 python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
+source .venv/bin/activate          
 pip install -r requirements.txt
 python eagle_service_scraper.py
 ```
@@ -104,8 +104,7 @@ Output is **`frontend/dist/`**. You still need the Flask API reachable from the 
 
 ---
 
-## Development notes
+## Other
 
-- **Do not commit** `__pycache__/` or `*.pyc`. A root `.gitignore` is included for Python artifacts.
 - **Prerequisites** are inferred from catalog-style description text; incomplete data affects eligibility and warnings.
-- **Git:** `git push` only uploads **commits**. Stage and commit local changes before pushing.
+
